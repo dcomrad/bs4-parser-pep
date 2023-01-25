@@ -3,8 +3,12 @@ import logging
 import requests_cache
 from bs4 import BeautifulSoup
 
+from configs import configure_logging
 from constants import EXPECTED_STATUS, EXPECTED_TYPE
 from utils import find_tag, get_connection_err_msg, get_response
+
+logger = logging.getLogger(__name__)
+configure_logging(logger)
 
 
 class PythonPEP:
@@ -23,7 +27,7 @@ class PythonPEP:
             error_msg = f'Некорректный ключ статуса: {status_key}'
 
         if error_msg:
-            logging.error(error_msg)
+            logger.error(error_msg)
             raise ValueError(error_msg)
 
         self.number = number
@@ -40,7 +44,7 @@ class PythonPEP:
             session = requests_cache.CachedSession()
         response = get_response(session, self.link)
         if response is None:
-            logging.error(get_connection_err_msg(self.link))
+            logger.error(get_connection_err_msg(self.link))
             return None
 
         soup = BeautifulSoup(response.text, features='lxml')
@@ -62,6 +66,6 @@ class PythonPEP:
             msg = (f'Несовпадающий статус ({self.link})\n'
                    f'Статус в карточке: {self.status}\n'
                    f'Ожидаемые статусы: {EXPECTED_STATUS[self.status_key]}')
-            logging.error(msg)
+            logger.error(msg)
 
         return self.status

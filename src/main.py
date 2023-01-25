@@ -12,13 +12,16 @@ from outputs import control_output
 from pep import PythonPEP
 from utils import find_tag, get_connection_err_msg, get_response
 
+logger = logging.getLogger(__name__)
+configure_logging(logger)
+
 
 def whats_new(session):
     whats_new_url = urljoin(MAIN_DOC_URL, 'whatsnew/')
 
     response = get_response(session, whats_new_url)
     if response is None:
-        logging.error(get_connection_err_msg(whats_new_url))
+        logger.error(get_connection_err_msg(whats_new_url))
         return None
 
     soup = BeautifulSoup(response.text, features='lxml')
@@ -32,7 +35,7 @@ def whats_new(session):
     for link in tqdm(links):
         response = get_response(session, link)
         if response is None:
-            logging.error(get_connection_err_msg(link))
+            logger.error(get_connection_err_msg(link))
             return None
 
         soup = BeautifulSoup(response.text, features='lxml')
@@ -53,7 +56,7 @@ def whats_new(session):
 def latest_versions(session):
     response = get_response(session, MAIN_DOC_URL)
     if response is None:
-        logging.error(get_connection_err_msg(MAIN_DOC_URL))
+        logger.error(get_connection_err_msg(MAIN_DOC_URL))
         return None
 
     soup = BeautifulSoup(response.text, features='lxml')
@@ -87,7 +90,7 @@ def download(session):
 
     response = get_response(session, downloads_url)
     if response is None:
-        logging.error(get_connection_err_msg(downloads_url))
+        logger.error(get_connection_err_msg(downloads_url))
         return
 
     soup = BeautifulSoup(response.text, features='lxml')
@@ -109,13 +112,13 @@ def download(session):
     response = session.get(archive_url)
     with open(archive_path, 'wb') as file:
         file.write(response.content)
-    logging.info(f'Архив был загружен и сохранён: {archive_path}')
+    logger.info(f'Архив был загружен и сохранён: {archive_path}')
 
 
 def pep(session):
     response = get_response(session, PEP_URL)
     if response is None:
-        logging.error(get_connection_err_msg(PEP_URL))
+        logger.error(get_connection_err_msg(PEP_URL))
         return None
 
     soup = BeautifulSoup(response.text, features='lxml')
@@ -138,7 +141,7 @@ def pep(session):
         status = pep_item.get_status(session)
         if status is None:
             msg = f'Ошибка получения статуса для PEP {pep_item}'
-            logging.error(msg)
+            logger.error(msg)
 
         if status not in EXPECTED_STATUS[pep_item.status_key]:
             result['Unknown'] += 1
@@ -159,12 +162,11 @@ MODE_TO_FUNCTION = {
 
 
 def main():
-    configure_logging()
-    logging.info('Парсер запущен!')
+    logger.info('Парсер запущен!')
 
     arg_parser = configure_argument_parser(MODE_TO_FUNCTION.keys())
     args = arg_parser.parse_args()
-    logging.info(f'Аргументы командной строки: {args}')
+    logger.info(f'Аргументы командной строки: {args}')
 
     session = requests_cache.CachedSession()
     if args.clear_cache:
@@ -175,7 +177,7 @@ def main():
 
     if results:
         control_output(results, args)
-    logging.info('Парсер завершил работу.')
+    logger.info('Парсер завершил работу.')
 
 
 if __name__ == '__main__':

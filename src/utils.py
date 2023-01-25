@@ -2,7 +2,11 @@ import logging
 
 from requests import RequestException
 
+from configs import configure_logging
 from exceptions import ParserFindTagException
+
+logger = logging.getLogger(__name__)
+configure_logging(logger)
 
 
 def get_connection_err_msg(link: str):
@@ -15,13 +19,13 @@ def get_response(session, url):
         response.encoding = 'utf-8'
         return response
     except RequestException:
-        logging.exception(get_connection_err_msg(url), stack_info=True)
+        logger.exception(get_connection_err_msg(url), stack_info=True)
 
 
 def find_tag(soup, tag, attrs=None, recursive=True):
     searched_tag = soup.find(tag, attrs=(attrs or {}), recursive=recursive)
     if searched_tag is None:
         error_msg = f'Не найден тег {tag} {attrs}'
-        logging.error(error_msg, stack_info=True)
+        logger.error(error_msg, stack_info=True)
         raise ParserFindTagException(error_msg)
     return searched_tag

@@ -1,5 +1,5 @@
-import re
 import logging
+import re
 from urllib.parse import urljoin
 
 import requests_cache
@@ -7,9 +7,10 @@ from bs4 import BeautifulSoup
 from tqdm import tqdm
 
 from configs import configure_argument_parser, configure_logging
-from constants import BASE_DIR, MAIN_DOC_URL
+from constants import BASE_DIR, EXPECTED_STATUS, MAIN_DOC_URL, PEP_URL
 from outputs import control_output
-from utils import get_response, find_tag
+from pep import PythonPEP
+from utils import find_tag, get_connection_err_msg, get_response
 
 
 def whats_new(session):
@@ -17,21 +18,22 @@ def whats_new(session):
 
     response = get_response(session, whats_new_url)
     if response is None:
-        return
+        logging.error(get_connection_err_msg(whats_new_url))
+        return None
 
     soup = BeautifulSoup(response.text, features='lxml')
 
-    section = find_tag(soup, 'section', {'id': 'what-s-new-in-python'})
-    section = find_tag(section, 'div', {'class': 'toctree-wrapper'})
-
-    items = section.ul.find_all(name='li', class_='toctree-l1')
+    main_section = find_tag(soup, 'section', {'id': 'what-s-new-in-python'})
+    div = find_tag(main_section, 'div', {'class': 'toctree-wrapper'})
+    items = div.ul.find_all(name='li', class_='toctree-l1')
     links = [urljoin(whats_new_url, item.a['href']) for item in items]
 
-    result = [('Ссылка на статью', 'Заголовок', 'Редактор, автор')]
+    result = [('Ссылка на статью', 'Заголовок', 'Редактор, Автор')]
     for link in tqdm(links):
         response = get_response(session, link)
         if response is None:
-            return
+            logging.error(get_connection_err_msg(link))
+            return None
 
         soup = BeautifulSoup(response.text, features='lxml')
 
@@ -51,7 +53,8 @@ def whats_new(session):
 def latest_versions(session):
     response = get_response(session, MAIN_DOC_URL)
     if response is None:
-        return
+        logging.error(get_connection_err_msg(MAIN_DOC_URL))
+        return None
 
     soup = BeautifulSoup(response.text, features='lxml')
 
@@ -62,17 +65,19 @@ def latest_versions(session):
             a_tags = ul.find_all('a')
             break
     else:
-        raise Exception('Ничего не нашлось')
+        raise Exception('Не найден список c версиями Python')
 
     pattern = r'Python (?P<version>\d\.\d+) \((?P<status>.*)\)'
 
     result = [('Ссылка на документацию', 'Версия', 'Статус')]
-    for link in a_tags:
-        text_matched = re.search(pattern, link.text)
+    for a_tag in a_tags:
+        link = a_tag['href']
+        text_matched = re.search(pattern, a_tag.text)
         if text_matched:
-            result.append(
-                (link['href'], *text_matched.group('version', 'status'))
-            )
+            version, status = text_matched.groups()
+        else:
+            version, status = a_tag.text, ''
+        result.append((link, version, status))
 
     return result
 
@@ -82,6 +87,7 @@ def download(session):
 
     response = get_response(session, downloads_url)
     if response is None:
+        logging.error(get_connection_err_msg(downloads_url))
         return
 
     soup = BeautifulSoup(response.text, features='lxml')
@@ -106,10 +112,49 @@ def download(session):
     logging.info(f'Архив был загружен и сохранён: {archive_path}')
 
 
+def pep(session):
+    response = get_response(session, PEP_URL)
+    if response is None:
+        logging.error(get_connection_err_msg(PEP_URL))
+        return None
+
+    soup = BeautifulSoup(response.text, features='lxml')
+    used_pep = find_tag(soup, 'section', {'id': 'numerical-index'})
+    pep_table = find_tag(used_pep, 'tbody')
+    lines = pep_table.find_all(name='tr')
+
+    peps = []
+    for line in lines:
+        abbr, number, name, *_ = line.find_all(name='td')
+        type_key, status_key = abbr.string[0], abbr.string[1:]
+        link = find_tag(name, 'a').get('href')
+        peps.append(
+            PythonPEP(number.string, name.string, type_key, status_key,
+                      urljoin(PEP_URL, link))
+        )
+
+    result = {'Unknown': 0}
+    for pep_item in tqdm(peps):
+        status = pep_item.get_status(session)
+        if status is None:
+            msg = f'Ошибка получения статуса для PEP {pep_item}'
+            logging.error(msg)
+
+        if status not in EXPECTED_STATUS[pep_item.status_key]:
+            result['Unknown'] += 1
+        else:
+            result[status] = result[status] + 1 if result.get(status) else 1
+
+    result['Total'] = len(peps)
+
+    return [('Статус', 'Количество')] + [(k, v) for k, v in result.items()]
+
+
 MODE_TO_FUNCTION = {
     'whats-new': whats_new,
     'latest-versions': latest_versions,
     'download': download,
+    'pep': pep
 }
 
 

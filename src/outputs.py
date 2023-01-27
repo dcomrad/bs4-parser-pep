@@ -32,7 +32,7 @@ def file_output(results, cli_args):
     # При попытке переноса этой переменной в constants, не проходят тесты
     # по причине того, что они не видят папку results, которая в ходе тестов
     # фактически создаётся в папке src проекта, а тесты ищут её во временной
-    # папке $TMP\pytest-of-Aleksandr\pytest-46\test_control_output_file_Names0\results\
+    # папке $TMP\...\pytest-46\test_control_output_file_Names0\results\
     # Почему так происходит я разобраться не смог, но предполагаю, что это
     # как-то связано с оптимизацией при построении байт-кода
     results_dir.mkdir(exist_ok=True)

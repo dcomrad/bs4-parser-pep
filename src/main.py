@@ -3,44 +3,36 @@ import re
 from urllib.parse import urljoin
 
 import requests_cache
-from bs4 import BeautifulSoup
 from tqdm import tqdm
 
 from configs import configure_argument_parser, configure_logging
-from constants import BASE_DIR, EXPECTED_STATUS, MAIN_DOC_URL, PEP_URL
+from constants import BASE_DIR  # тесты требуют наличие этой константы
+# from pathlib import Path
+# BASE_DIR = Path(__file__).parent
+from constants import (DOWNLOADS_DIR, DOWNLOADS_URL, EXPECTED_STATUS,
+                       MAIN_DOC_URL, PEP_URL, WHATS_NEW_URL)
+from exceptions import ParserConnectionFailedException, ParserFindDataException
 from outputs import control_output
 from pep import PythonPEP
-from utils import find_tag, get_connection_err_msg, get_response
+from utils import find_tag, get_response, get_soup
 
 logger = logging.getLogger(__name__)
 configure_logging(logger)
 
 
 def whats_new(session):
-    whats_new_url = urljoin(MAIN_DOC_URL, 'whatsnew/')
-
-    response = get_response(session, whats_new_url)
-    if response is None:
-        logger.error(get_connection_err_msg(whats_new_url))
-        return None
-
-    soup = BeautifulSoup(response.text, features='lxml')
+    soup = get_soup(session, WHATS_NEW_URL)
 
     main_section = find_tag(soup, 'section', {'id': 'what-s-new-in-python'})
     div = find_tag(main_section, 'div', {'class': 'toctree-wrapper'})
     items = div.ul.find_all(name='li', class_='toctree-l1')
-    links = [urljoin(whats_new_url, item.a['href']) for item in items]
+    links = [urljoin(WHATS_NEW_URL, item.a['href']) for item in items]
 
     result = [('Ссылка на статью', 'Заголовок', 'Редактор, Автор')]
     for link in tqdm(links):
-        response = get_response(session, link)
-        if response is None:
-            logger.error(get_connection_err_msg(link))
-            return None
+        new_soup = get_soup(session, link)
 
-        soup = BeautifulSoup(response.text, features='lxml')
-
-        main_div = find_tag(soup, 'div', {'class': 'body', 'role': 'main'})
+        main_div = find_tag(new_soup, 'div', {'class': 'body', 'role': 'main'})
         section = find_tag(main_div, 'section')
 
         h1 = find_tag(section, 'h1', recursive=False)
@@ -54,12 +46,7 @@ def whats_new(session):
 
 
 def latest_versions(session):
-    response = get_response(session, MAIN_DOC_URL)
-    if response is None:
-        logger.error(get_connection_err_msg(MAIN_DOC_URL))
-        return None
-
-    soup = BeautifulSoup(response.text, features='lxml')
+    soup = get_soup(session, MAIN_DOC_URL)
 
     sidebar = find_tag(soup, 'div', {'class': 'sphinxsidebarwrapper'})
     ul_tags = sidebar.find_all('ul')
@@ -68,7 +55,7 @@ def latest_versions(session):
             a_tags = ul.find_all('a')
             break
     else:
-        raise Exception('Не найден список c версиями Python')
+        raise ParserFindDataException('Не найден список c версиями Python')
 
     pattern = r'Python (?P<version>\d\.\d+) \((?P<status>.*)\)'
 
@@ -86,42 +73,32 @@ def latest_versions(session):
 
 
 def download(session):
-    downloads_url = urljoin(MAIN_DOC_URL, 'download.html')
-
-    response = get_response(session, downloads_url)
-    if response is None:
-        logger.error(get_connection_err_msg(downloads_url))
-        return
-
-    soup = BeautifulSoup(response.text, features='lxml')
+    soup = get_soup(session, DOWNLOADS_URL)
 
     main_tag = find_tag(soup, 'div', {'class': 'body', 'role': 'main'})
     table_tag = find_tag(main_tag, 'table', {'class': 'docutils'})
 
     # поиск ссылки на искомый файл
     a_tag = find_tag(table_tag, 'a', {'href': re.compile(r'.+pdf-a4\.zip$')})
-    archive_url = urljoin(downloads_url, a_tag.get('href'))
+    archive_url = urljoin(DOWNLOADS_URL, a_tag.get('href'))
 
     # подготовка папки для записи файла
     filename = archive_url.split('/')[-1]
-    downloads_dir = BASE_DIR / 'downloads'
-    downloads_dir.mkdir(exist_ok=True)
-    archive_path = downloads_dir / filename
+
+    DOWNLOADS_DIR.mkdir(exist_ok=True)
+    archive_path = DOWNLOADS_DIR / filename
 
     # скачивание файла
-    response = session.get(archive_url)
+    response = get_response(session, archive_url)
     with open(archive_path, 'wb') as file:
         file.write(response.content)
+
     logger.info(f'Архив был загружен и сохранён: {archive_path}')
 
 
 def pep(session):
-    response = get_response(session, PEP_URL)
-    if response is None:
-        logger.error(get_connection_err_msg(PEP_URL))
-        return None
+    soup = get_soup(session, PEP_URL)
 
-    soup = BeautifulSoup(response.text, features='lxml')
     used_pep = find_tag(soup, 'section', {'id': 'numerical-index'})
     pep_table = find_tag(used_pep, 'tbody')
     lines = pep_table.find_all(name='tr')
@@ -173,11 +150,17 @@ def main():
         session.cache.clear()
 
     parser_mode = args.mode
-    results = MODE_TO_FUNCTION[parser_mode](session)
-
-    if results:
-        control_output(results, args)
-    logger.info('Парсер завершил работу.')
+    try:
+        results = MODE_TO_FUNCTION[parser_mode](session)
+        if results:
+            control_output(results, args)
+        logger.info('Парсер завершил работу.')
+    except ParserConnectionFailedException as ex:
+        logger.error(f'Ошибка соединения: {ex}')
+    except ParserFindDataException as ex:
+        logger.error(f'Ошибка при попытке парсинга: {ex}')
+    except Exception as ex:
+        logger.error(ex)
 
 
 if __name__ == '__main__':

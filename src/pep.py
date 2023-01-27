@@ -1,11 +1,10 @@
 import logging
 
 import requests_cache
-from bs4 import BeautifulSoup
 
 from configs import configure_logging
 from constants import EXPECTED_STATUS, EXPECTED_TYPE
-from utils import find_tag, get_connection_err_msg, get_response
+from utils import find_tag, get_soup
 
 logger = logging.getLogger(__name__)
 configure_logging(logger)
@@ -27,7 +26,6 @@ class PythonPEP:
             error_msg = f'Некорректный ключ статуса: {status_key}'
 
         if error_msg:
-            logger.error(error_msg)
             raise ValueError(error_msg)
 
         self.number = number
@@ -42,12 +40,8 @@ class PythonPEP:
          самого PEP"""
         if not session:
             session = requests_cache.CachedSession()
-        response = get_response(session, self.link)
-        if response is None:
-            logger.error(get_connection_err_msg(self.link))
-            return None
 
-        soup = BeautifulSoup(response.text, features='lxml')
+        soup = get_soup(session, self.link)
         info_table = find_tag(soup, 'dl', {'class': 'field-list'})
 
         for child in info_table.find_all('dt'):
@@ -63,8 +57,8 @@ class PythonPEP:
         self.status = status_tag.text
 
         if self.status not in EXPECTED_STATUS[self.status_key]:
-            msg = (f'Несовпадающий статус ({self.link})\n'
-                   f'Статус в карточке: {self.status}\n'
+            msg = (f'Несовпадающий статус ({self.link}); '
+                   f'Статус в карточке: {self.status}; '
                    f'Ожидаемые статусы: {EXPECTED_STATUS[self.status_key]}')
             logger.error(msg)
 

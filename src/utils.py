@@ -1,16 +1,11 @@
-import logging
-
 from bs4 import BeautifulSoup
 from requests import RequestException
 
-from configs import configure_logging
 from exceptions import ParserConnectionFailedException, ParserFindTagException
-
-logger = logging.getLogger(__name__)
-configure_logging(logger)
 
 connection_error = 'Возникла ошибка при загрузке страницы ({link})'
 find_tag_error = 'Не найден тег {tag} {attrs}'
+select_tag_error = 'Не найден тег {selector}'
 
 
 def get_response(session, url):
@@ -36,5 +31,14 @@ def find_tag(soup, tag, attrs=None, recursive=True):
     if searched_tag is None:
         raise ParserFindTagException(
             find_tag_error.format(tag=tag, attrs=attrs)
+        )
+    return searched_tag
+
+
+def select_tag(soup, selector):
+    searched_tag = soup.select_one(selector)
+    if searched_tag is None:
+        raise ParserFindTagException(
+            select_tag_error.format(selector=selector)
         )
     return searched_tag

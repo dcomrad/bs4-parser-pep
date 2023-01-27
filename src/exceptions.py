@@ -8,3 +8,7 @@ class ParserFindDataException(Exception):
 
 class ParserFindTagException(Exception):
     """Вызывается, когда парсер не может найти тег."""
+
+
+class ParserDataConflictException(Exception):
+    """Вызывается, при несоответствии спарсеных данных между собой."""

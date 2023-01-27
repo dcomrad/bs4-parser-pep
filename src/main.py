@@ -6,15 +6,14 @@ import requests_cache
 from tqdm import tqdm
 
 from configs import configure_argument_parser, configure_logging
-from constants import BASE_DIR  # тесты требуют наличие этой константы
-# from pathlib import Path
-# BASE_DIR = Path(__file__).parent
-from constants import (DOWNLOADS_DIR, DOWNLOADS_URL, EXPECTED_STATUS,
-                       MAIN_DOC_URL, PEP_URL, WHATS_NEW_URL)
-from exceptions import ParserConnectionFailedException, ParserFindDataException
+from constants import (BASE_DIR, DOWNLOADS_URL, EXPECTED_STATUS, MAIN_DOC_URL,
+                       PEP_URL, WHATS_NEW_URL)
+from exceptions import (ParserConnectionFailedException,
+                        ParserDataConflictException, ParserFindDataException,
+                        ParserFindTagException)
 from outputs import control_output
 from pep import PythonPEP
-from utils import find_tag, get_response, get_soup
+from utils import find_tag, get_response, get_soup, select_tag
 
 logger = logging.getLogger(__name__)
 configure_logging(logger)
@@ -23,24 +22,32 @@ configure_logging(logger)
 def whats_new(session):
     soup = get_soup(session, WHATS_NEW_URL)
 
-    main_section = find_tag(soup, 'section', {'id': 'what-s-new-in-python'})
-    div = find_tag(main_section, 'div', {'class': 'toctree-wrapper'})
-    items = div.ul.find_all(name='li', class_='toctree-l1')
+    div = select_tag(soup, '#what-s-new-in-python > div.toctree-wrapper')
+    items = div.select('li.toctree-l1')
+
     links = [urljoin(WHATS_NEW_URL, item.a['href']) for item in items]
 
     result = [('Ссылка на статью', 'Заголовок', 'Редактор, Автор')]
+    messages_for_logging = []
     for link in tqdm(links):
-        new_soup = get_soup(session, link)
+        try:
+            new_soup = get_soup(session, link)
 
-        main_div = find_tag(new_soup, 'div', {'class': 'body', 'role': 'main'})
-        section = find_tag(main_div, 'section')
+            h1 = select_tag(new_soup, 'div.body section > h1')
+            dl = new_soup.select_one('div.body section > dl.field-list')
 
-        h1 = find_tag(section, 'h1', recursive=False)
-        dl = section.find(name='dl', recursive=False)
+            result.append(
+                (link,
+                 h1.text,
+                 dl.text.replace('\n', ' ').strip() if dl else '')
+            )
+        except ParserConnectionFailedException as ex:
+            messages_for_logging.append(ex)
+        except ParserFindTagException as ex:
+            messages_for_logging.append(ex)
 
-        result.append(
-            (link, h1.text, dl.text.replace('\n', ' ').strip() if dl else '')
-        )
+    for message in messages_for_logging:
+        logger.error(message)
 
     return result
 
@@ -48,8 +55,7 @@ def whats_new(session):
 def latest_versions(session):
     soup = get_soup(session, MAIN_DOC_URL)
 
-    sidebar = find_tag(soup, 'div', {'class': 'sphinxsidebarwrapper'})
-    ul_tags = sidebar.find_all('ul')
+    ul_tags = soup.select('div.sphinxsidebarwrapper > ul')
     for ul in ul_tags:
         if 'All versions' in ul.text:
             a_tags = ul.find_all('a')
@@ -75,18 +81,22 @@ def latest_versions(session):
 def download(session):
     soup = get_soup(session, DOWNLOADS_URL)
 
-    main_tag = find_tag(soup, 'div', {'class': 'body', 'role': 'main'})
-    table_tag = find_tag(main_tag, 'table', {'class': 'docutils'})
-
-    # поиск ссылки на искомый файл
+    table_tag = select_tag(soup, 'div.body > table.docutils')
     a_tag = find_tag(table_tag, 'a', {'href': re.compile(r'.+pdf-a4\.zip$')})
     archive_url = urljoin(DOWNLOADS_URL, a_tag.get('href'))
 
     # подготовка папки для записи файла
     filename = archive_url.split('/')[-1]
 
-    DOWNLOADS_DIR.mkdir(exist_ok=True)
-    archive_path = DOWNLOADS_DIR / filename
+    downloads_dir = BASE_DIR / 'downloads'
+    # При попытке переноса этой переменной в constants, не проходят тесты
+    # по причине того, что они не видят папку downloads, которая в ходе тестов
+    # фактически создаётся в папке src проекта, а тесты ищут её во временной
+    # папке $TMP\pytest-of-Aleksandr\pytest-46\test_download0\downloads
+    # Почему так происходит я разобраться не смог, но предполагаю, что это
+    # как-то связано с оптимизацией при построении байт-кода
+    downloads_dir.mkdir(exist_ok=True)
+    archive_path = downloads_dir / filename
 
     # скачивание файла
     response = get_response(session, archive_url)
@@ -99,13 +109,10 @@ def download(session):
 def pep(session):
     soup = get_soup(session, PEP_URL)
 
-    used_pep = find_tag(soup, 'section', {'id': 'numerical-index'})
-    pep_table = find_tag(used_pep, 'tbody')
-    lines = pep_table.find_all(name='tr')
-
+    lines = soup.select('#numerical-index tbody tr')
     peps = []
     for line in lines:
-        abbr, number, name, *_ = line.find_all(name='td')
+        abbr, number, name, *_ = line.find_all('td')
         type_key, status_key = abbr.string[0], abbr.string[1:]
         link = find_tag(name, 'a').get('href')
         peps.append(
@@ -114,19 +121,28 @@ def pep(session):
         )
 
     result = {'Unknown': 0}
+    messages_for_logging = []
     for pep_item in tqdm(peps):
-        status = pep_item.get_status(session)
-        if status is None:
-            msg = f'Ошибка получения статуса для PEP {pep_item}'
-            logger.error(msg)
+        status = None
+        try:
+            status = pep_item.get_status(session)
+        except ParserConnectionFailedException as ex:
+            messages_for_logging.append(ex)
+        except ParserDataConflictException as ex:
+            messages_for_logging.append(ex)
 
+        if status is None:
+            message = f'Ошибка получения статуса для PEP {pep_item.link}'
+            messages_for_logging.append(message)
         if status not in EXPECTED_STATUS[pep_item.status_key]:
             result['Unknown'] += 1
         else:
             result[status] = result[status] + 1 if result.get(status) else 1
 
-    result['Total'] = len(peps)
+    for message in messages_for_logging:
+        logger.error(message)
 
+    result['Total'] = len(peps)
     return [('Статус', 'Количество')] + [(k, v) for k, v in result.items()]
 
 
@@ -155,10 +171,6 @@ def main():
         if results:
             control_output(results, args)
         logger.info('Парсер завершил работу.')
-    except ParserConnectionFailedException as ex:
-        logger.error(f'Ошибка соединения: {ex}')
-    except ParserFindDataException as ex:
-        logger.error(f'Ошибка при попытке парсинга: {ex}')
     except Exception as ex:
         logger.error(ex)
 

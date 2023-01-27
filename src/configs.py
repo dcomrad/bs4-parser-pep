@@ -1,6 +1,7 @@
 import argparse
 import logging
 from logging.handlers import RotatingFileHandler
+from sys import stdout
 
 from constants import (FILE, LOG_DIR, LOG_FILE, LOGGER_DT_FORMAT,
                        LOGGER_FORMAT, PRETTY)
@@ -37,12 +38,15 @@ def configure_logging(logger):
 
     logger.setLevel(logging.DEBUG)
 
+    c_handler = logging.StreamHandler(stdout)
     f_handler = RotatingFileHandler(LOG_FILE,
                                     maxBytes=10**6,
                                     backupCount=5,
                                     encoding='UTF-8')
 
     formatter = logging.Formatter(fmt=LOGGER_FORMAT, datefmt=LOGGER_DT_FORMAT)
+    c_handler.setFormatter(formatter)
     f_handler.setFormatter(formatter)
 
+    logger.addHandler(c_handler)
     logger.addHandler(f_handler)

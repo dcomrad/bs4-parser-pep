@@ -5,8 +5,7 @@ import logging
 from prettytable import PrettyTable
 
 from configs import configure_logging
-from constants import BASE_DIR  # тесты требуют наличие этой константы
-from constants import DATETIME_FORMAT, DEFAULT, FILE, PRETTY, RESULTS_DIR
+from constants import BASE_DIR, DATETIME_FORMAT, DEFAULT, FILE, PRETTY
 
 logger = logging.getLogger(__name__)
 configure_logging(logger)
@@ -29,10 +28,17 @@ def pretty_output(results, *args):
 
 def file_output(results, cli_args):
     """Печатает результат в файл в формате csv."""
-    RESULTS_DIR.mkdir(exist_ok=True)
+    results_dir = BASE_DIR / 'results'
+    # При попытке переноса этой переменной в constants, не проходят тесты
+    # по причине того, что они не видят папку results, которая в ходе тестов
+    # фактически создаётся в папке src проекта, а тесты ищут её во временной
+    # папке $TMP\pytest-of-Aleksandr\pytest-46\test_control_output_file_Names0\results\
+    # Почему так происходит я разобраться не смог, но предполагаю, что это
+    # как-то связано с оптимизацией при построении байт-кода
+    results_dir.mkdir(exist_ok=True)
     now_formatted = dt.datetime.now().strftime(DATETIME_FORMAT)
     filename = f'{cli_args.mode}_{now_formatted}.csv'
-    file_path = RESULTS_DIR / filename
+    file_path = results_dir / filename
     with open(file_path, 'w', encoding='UTF-8') as file:
         writer = csv.writer(file, dialect=csv.unix_dialect)
         writer.writerows(results)

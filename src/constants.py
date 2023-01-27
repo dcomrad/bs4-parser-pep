@@ -2,11 +2,6 @@ from pathlib import Path
 from urllib.parse import urljoin
 
 BASE_DIR = Path(__file__).parent
-LOG_DIR = BASE_DIR / 'logs'
-RESULTS_DIR = BASE_DIR / 'results'
-DOWNLOADS_DIR = BASE_DIR / 'downloads'
-
-LOG_FILE = LOG_DIR / 'parser.log'
 
 MAIN_DOC_URL = 'https://docs.python.org/3/'
 WHATS_NEW_URL = urljoin(MAIN_DOC_URL, 'whatsnew/')
@@ -27,9 +22,13 @@ EXPECTED_STATUS = {
     '': ('Draft', 'Active'),
 }
 
-LOGGER_FORMAT = '"%(asctime)s - [%(levelname)s] - %(message)s"'
-LOGGER_DT_FORMAT = '%d.%m.%Y %H:%M:%S'
-
+# CLI working mode constants
 PRETTY = 'pretty'
 FILE = 'file'
 DEFAULT = ''
+
+# Logger configuration constants
+LOG_DIR = BASE_DIR / 'logs'
+LOG_FILE = LOG_DIR / 'parser.log'
+LOGGER_FORMAT = '"%(asctime)s - [%(levelname)s] - %(message)s"'
+LOGGER_DT_FORMAT = '%d.%m.%Y %H:%M:%S'

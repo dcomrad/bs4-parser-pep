@@ -1,13 +1,8 @@
-import logging
-
 import requests_cache
 
-from configs import configure_logging
 from constants import EXPECTED_STATUS, EXPECTED_TYPE
-from utils import find_tag, get_soup
-
-logger = logging.getLogger(__name__)
-configure_logging(logger)
+from exceptions import ParserDataConflictException
+from utils import get_soup, select_tag
 
 
 class PythonPEP:
@@ -19,14 +14,14 @@ class PythonPEP:
                  status_key: str,
                  link: str):
 
-        error_msg = ''
+        error_message = ''
         if type_key not in EXPECTED_TYPE:
-            error_msg = f'Некорректный ключ типа: {type_key}'
+            error_message = f'Некорректный ключ типа: {type_key}'
         if status_key not in EXPECTED_STATUS:
-            error_msg = f'Некорректный ключ статуса: {status_key}'
+            error_message = f'Некорректный ключ статуса: {status_key}'
 
-        if error_msg:
-            raise ValueError(error_msg)
+        if error_message:
+            raise ValueError(error_message)
 
         self.number = number
         self.name = name
@@ -42,7 +37,7 @@ class PythonPEP:
             session = requests_cache.CachedSession()
 
         soup = get_soup(session, self.link)
-        info_table = find_tag(soup, 'dl', {'class': 'field-list'})
+        info_table = select_tag(soup, 'dl.field-list')
 
         for child in info_table.find_all('dt'):
             if 'Status' in child.strings:
@@ -57,9 +52,11 @@ class PythonPEP:
         self.status = status_tag.text
 
         if self.status not in EXPECTED_STATUS[self.status_key]:
-            msg = (f'Несовпадающий статус ({self.link}); '
-                   f'Статус в карточке: {self.status}; '
-                   f'Ожидаемые статусы: {EXPECTED_STATUS[self.status_key]}')
-            logger.error(msg)
+            message = (
+                f'Несовпадающий статус ({self.link}); '
+                f'Статус в карточке: {self.status}; '
+                f'Ожидаемые статусы: {EXPECTED_STATUS[self.status_key]}'
+            )
+            raise ParserDataConflictException(message)
 
         return self.status
